@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BOOKeeper Update</title>
+  <title>BOOKeeper Updates</title>
   <link rel="icon" href="icon.png">
   <style>
     :root {
@@ -207,7 +207,7 @@
       <h1 class="app-title">BOOKeeper</h1>
     </div>
 
-    <p class="version" id="versionText">Loading update version...</p>
+    <p class="version" id="versionText">正在讀取最新版本...</p>
 
     <section class="options" id="optionsSection"></section>
   </main>
@@ -270,8 +270,8 @@
     function renderUnsupported() {
       document.getElementById('optionsSection').innerHTML = `
         <article class="option">
-          <h2>Not Supported on this device</h2>
-          <p>Open this page on iOS or Android to install BOOKeeper.</p>
+          <h2>目前不支援這台裝置</h2>
+          <p>請用 iPhone、iPad 或 Android 開啟這個頁面來安裝 BOOKeeper</p>
         </article>
       `;
     }
@@ -280,13 +280,13 @@
       return `
         <article class="option">
           <div class="option-header">
-            <h2>Expo Preview</h2>
-            <span class="badge">Recommended</span>
+            <h2>Expo 預覽版</h2>
+            <span class="badge">建議使用</span>
           </div>
-          <p>Use Expo Go for the fastest update path. Preview builds receive fixes through Expo updates.</p>
+          <p>更新最快速，不需使用額外安裝檔。</p>
           <div class="actions">
             ${buttonLink(storeLabel, storeLink, 'outline')}
-            ${state.expoUrl ? buttonLink('Open in Expo', state.expoUrl) : disabledButton('Expo Link Unavailable')}
+            ${state.expoUrl ? buttonLink('用 Expo 開啟', state.expoUrl) : disabledButton('目前沒有 Expo 連結')}
           </div>
         </article>
       `;
@@ -294,19 +294,19 @@
 
     function renderIos() {
       const sideloadActions = state.ipaUrl
-        ? `<button class="button secondary" type="button" id="showSideload">Show Sideload Options</button>`
-        : disabledButton('No Release Available');
+        ? `<button class="button secondary" type="button" id="showSideload">顯示 Sideload 選項</button>`
+        : disabledButton('尚無可下載版本');
 
       document.getElementById('optionsSection').innerHTML = `
-        ${renderExpoOption(APP_STORE_LINK, 'Install Expo Go')}
+        ${renderExpoOption(APP_STORE_LINK, '安裝 Expo Go')}
         <article class="option">
           <div class="option-header">
-            <h2>Sideload IPA</h2>
-            <span class="badge">Optional</span>
+            <h2>安裝 IPA</h2>
+            <span class="badge">進階選項</span>
           </div>
-          <p>Use this only when a release build exists for the current version.</p>
+          <p>如果你熟悉 iOS Sideloading，也可以下載這個版本的 IPA。</p>
           <div class="actions">${sideloadActions}</div>
-          ${state.ipaUrl ? '' : '<p class="notice">No Release Available</p>'}
+          ${state.ipaUrl ? '' : '<p class="notice">這個版本目前沒有可下載的安裝檔。</p>'}
         </article>
       `;
 
@@ -320,12 +320,12 @@
             <h2>Sideload BOOKeeper ${state.version}</h2>
             <span class="badge">IPA</span>
           </div>
-          <p>Install SideStore and LiveContainer using their official documentation, then download the IPA for this version.</p>
+          <p>請先依照官方文件設定 SideStore / LiveContainer。準備好之後，再下載這個版本的 IPA 匯入安裝。</p>
           <div class="actions">
-            ${buttonLink('SideStore Docs', SIDESTORE_DOCS, 'outline')}
-            ${buttonLink('LiveContainer Docs', LIVECONTAINER_DOCS, 'outline')}
-            ${buttonLink('Download IPA', state.ipaUrl, 'secondary')}
-            <button class="button outline" type="button" id="backToOptions">Back</button>
+            ${buttonLink('SideStore 官方說明', SIDESTORE_DOCS, 'outline')}
+            ${buttonLink('LiveContainer 官方說明', LIVECONTAINER_DOCS, 'outline')}
+            ${buttonLink('下載 IPA', state.ipaUrl, 'secondary')}
+            <button class="button outline" type="button" id="backToOptions">返回</button>
           </div>
         </article>
       `;
@@ -335,19 +335,19 @@
 
     function renderAndroid() {
       const apkActions = state.apkUrl
-        ? buttonLink('Download APK', state.apkUrl, 'secondary')
-        : disabledButton('No Release Available');
+        ? buttonLink('下載 APK', state.apkUrl, 'secondary')
+        : disabledButton('尚無可下載版本');
 
       document.getElementById('optionsSection').innerHTML = `
-        ${renderExpoOption(PLAY_STORE_LINK, 'Install Expo Go')}
+        ${renderExpoOption(PLAY_STORE_LINK, '安裝 Expo Go')}
         <article class="option">
           <div class="option-header">
-            <h2>Install APK</h2>
-            <span class="badge">Optional</span>
+            <h2>安裝 APK</h2>
+            <span class="badge">可選</span>
           </div>
-          <p>Download the APK only when a release build exists for the current version.</p>
+          <p>如果想直接安裝 App，可以下載 APK</p>
           <div class="actions">${apkActions}</div>
-          ${state.apkUrl ? '' : '<p class="notice">No Release Available</p>'}
+          ${state.apkUrl ? '' : '<p class="notice">這個版本目前沒有可下載的 APK。</p>'}
         </article>
       `;
     }
@@ -362,7 +362,7 @@
         const data = await response.json();
         state.version = data.version || 'unknown';
         state.expoUrl = state.platform === 'ios' ? data.ios_link : data.android_link;
-        versionText.textContent = `Update version ${state.version}`;
+        versionText.textContent = `目前版本：${state.version}`;
 
         const releaseAssets = await loadReleaseAssets(state.version);
         state.ipaUrl = releaseAssets.ipaUrl;
@@ -376,11 +376,11 @@
           renderUnsupported();
         }
       } catch (error) {
-        versionText.textContent = 'Could not load update version.';
+        versionText.textContent = '無法讀取最新版本。';
         document.getElementById('optionsSection').innerHTML = `
           <article class="option">
-            <h2>Unable to load update information</h2>
-            <p>Please try again later.</p>
+            <h2>讀取更新資訊失敗</h2>
+            <p>請稍後再試一次，或確認網路連線是否正常。</p>
           </article>
         `;
         console.error(error);
