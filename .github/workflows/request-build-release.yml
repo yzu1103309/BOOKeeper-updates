@@ -27,6 +27,10 @@ on:
           - preview
           - development
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   request-builds:
     runs-on: ubuntu-latest
@@ -35,23 +39,27 @@ jobs:
       - name: Trigger Android build
         if: ${{ inputs.android }}
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_ACTION_TOKEN }}
-          CODE_REPO: yzu1103309/Bookshelf-App-React-Native
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPO: ${{ github.repository }}
+          RELEASE_REF: ${{ github.ref_name }}
           CODE_REF: ${{ inputs.code_ref }}
           ANDROID_PROFILE: ${{ inputs.android_profile }}
         run: |
-          gh workflow run main.yml \
-            --repo "$CODE_REPO" \
-            --ref "$CODE_REF" \
+          gh workflow run Android.yml \
+            --repo "$RELEASE_REPO" \
+            --ref "$RELEASE_REF" \
+            -f code_ref="$CODE_REF" \
             -f profile="$ANDROID_PROFILE"
 
       - name: Trigger iOS build
         if: ${{ inputs.ios }}
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_ACTION_TOKEN }}
-          CODE_REPO: yzu1103309/Bookshelf-App-React-Native
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPO: ${{ github.repository }}
+          RELEASE_REF: ${{ github.ref_name }}
           CODE_REF: ${{ inputs.code_ref }}
         run: |
-          gh workflow run xcode.yml \
-            --repo "$CODE_REPO" \
-            --ref "$CODE_REF"
+          gh workflow run iOS.yml \
+            --repo "$RELEASE_REPO" \
+            --ref "$RELEASE_REF" \
+            -f code_ref="$CODE_REF"

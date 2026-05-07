@@ -1,0 +1,159 @@
+name: Build Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      code_ref:
+        description: Branch, tag, or commit SHA in yzu1103309/Bookshelf-App-React-Native
+        required: true
+        default: main
+      profile:
+        type: choice
+        description: Build profile to use
+        required: true
+        default: production
+        options:
+          - production
+          - preview
+          - development
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22.x]
+
+    steps:
+      - name: Check for EXPO_TOKEN
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "You must provide an EXPO_TOKEN secret linked to this project's Expo account in this repo's secrets. Learn more: https://docs.expo.dev/eas-update/github-actions"
+            exit 1
+          fi
+
+      - name: 🏗 Setup app repo
+        uses: actions/checkout@v5
+        with:
+          repository: yzu1103309/Bookshelf-App-React-Native
+          ref: ${{ inputs.code_ref }}
+          token: ${{ secrets.RELEASE_ACTION_TOKEN }}
+
+      - name: 🔖 Read app version
+        run: echo "APP_VERSION=$(jq -r .expo.version app.json)" >> "$GITHUB_ENV"
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+
+      - name: ☕️ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 🧠 Increase Gradle JVM memory
+        run: |
+          echo "JAVA_TOOL_OPTIONS=-Xmx4096m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" >> $GITHUB_ENV
+          echo "GRADLE_OPTS=-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'" >> $GITHUB_ENV
+
+      - name: 🏗 Setup Expo and EAS
+        uses: expo/expo-github-action@v7
+        with:
+          token: ${{ secrets.EXPO_TOKEN }}
+          expo-version: latest
+          eas-version: latest
+
+      - name: 🏗 Setup EAS local builds
+        run: yarn global add eas-cli-local-build-plugin
+
+      - name: 🔓 Restore private data
+        run: wget ${{ secrets.TEST_DATA_URL }} ${{ secrets.CONSTANTS_URL }} -q -P constants
+
+      - name: 📦 Install dependencies
+        run: yarn
+
+      - name: 📦 Prebuild app
+        run: npx expo prebuild --platform android
+
+      - name: 👷 Build app
+        run: |
+          eas build --local --non-interactive --output=./BOOKeeper-${APP_VERSION}.apk --platform=android --profile=${{ inputs.profile }}
+
+      - name: 📱 Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: BOOKeeper-${{ env.APP_VERSION }}.apk
+          path: BOOKeeper-${{ env.APP_VERSION }}.apk
+          retention-days: 14
+
+      - name: 🚀 Upload binary to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPO: ${{ github.repository }}
+          RELEASE_TAG: v${{ env.APP_VERSION }}
+          RELEASE_TITLE: BOOKeeper ${{ env.APP_VERSION }}
+          RELEASE_FILE: BOOKeeper-${{ env.APP_VERSION }}.apk
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$RELEASE_REPO" \
+              --title "$RELEASE_TITLE" \
+              --notes "BOOKeeper ${APP_VERSION}" \
+              || gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" >/dev/null
+          fi
+
+          gh release upload "$RELEASE_TAG" "$RELEASE_FILE" \
+            --repo "$RELEASE_REPO" \
+            --clobber
+
+      - name: 🏗 Checkout release repo
+        uses: actions/checkout@v5
+        with:
+          path: BOOKeeper-updates
+
+      - name: 📝 Update latest build info
+        env:
+          RELEASE_VERSION: ${{ env.APP_VERSION }}
+          ANDROID_LINK: https://github.com/${{ github.repository }}/releases/download/v${{ env.APP_VERSION }}/BOOKeeper-${{ env.APP_VERSION }}.apk
+        run: |
+          cd BOOKeeper-updates
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3; do
+            git pull --rebase origin main
+
+            IOS_LINK=""
+            if [ -f latest_build ] && [ "$(jq -r '.version // ""' latest_build)" = "$RELEASE_VERSION" ]; then
+              IOS_LINK=$(jq -r '.ios_link // ""' latest_build)
+            fi
+
+            jq -n \
+              --arg version "$RELEASE_VERSION" \
+              --arg android_link "$ANDROID_LINK" \
+              --arg ios_link "$IOS_LINK" \
+              '{version: $version, android_link: $android_link, ios_link: $ios_link}' > latest_build
+
+            git add latest_build
+            if git diff --cached --quiet; then
+              echo "latest_build is already up to date."
+              exit 0
+            fi
+
+            git commit -m "Update latest build to $RELEASE_VERSION"
+            if git push origin main; then
+              exit 0
+            fi
+
+            git reset --soft HEAD~1
+            sleep 2
+          done
+
+          echo "Failed to push latest_build after retries."
+          exit 1

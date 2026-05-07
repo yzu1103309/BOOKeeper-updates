@@ -1,0 +1,187 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      code_ref:
+        description: Branch, tag, or commit SHA in yzu1103309/Bookshelf-App-React-Native
+        required: true
+        default: main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        node: [22.x]
+
+    steps:
+      - name: Check for EXPO_TOKEN
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "You must provide an EXPO_TOKEN secret linked to this project's Expo account in this repo's secrets. Learn more: https://docs.expo.dev/eas-update/github-actions"
+            exit 1
+          fi
+
+      - name: 🏗 Setup app repo
+        uses: actions/checkout@v5
+        with:
+          repository: yzu1103309/Bookshelf-App-React-Native
+          ref: ${{ inputs.code_ref }}
+          token: ${{ secrets.RELEASE_ACTION_TOKEN }}
+
+      - name: 🔖 Read app version
+        run: echo "APP_VERSION=$(jq -r .expo.version app.json)" >> "$GITHUB_ENV"
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+
+      - name: 🏗 Setup Expo and EAS
+        uses: expo/expo-github-action@v7
+        with:
+          token: ${{ secrets.EXPO_TOKEN }}
+          expo-version: latest
+          eas-version: latest
+
+      - name: 🔓 Restore private data
+        run: wget ${{ secrets.TEST_DATA_URL }} ${{ secrets.CONSTANTS_URL }} -q -P constants
+
+      - name: 📦 Install dependencies
+        run: yarn
+
+      - name: 📦 Prebuild (iOS)
+        run: npx expo prebuild --platform ios --non-interactive
+
+      - name: ♻️ Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: 📦 Install Pods
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: 👷 Build archive (xcarchive)
+        run: |
+          cd ios
+          xcodebuild \
+            -scheme BOOKeeper \
+            -workspace BOOKeeper.xcworkspace \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            clean archive \
+            -archivePath "build/BOOKeeper.xcarchive" \
+            -quiet \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 📦 Pack unsigned IPA
+        run: |
+          APP_PATH=$(find "ios/build/BOOKeeper.xcarchive/Products/Applications" -maxdepth 1 -type d -name "*.app" -print -quit)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found in archive."
+            echo "Available items:"
+            ls -la "ios/build/BOOKeeper.xcarchive/Products/Applications" || true
+            exit 1
+          fi
+
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+
+          /usr/bin/zip -r "BOOKeeper-${APP_VERSION}.ipa" Payload
+
+      - name: 📱 Upload xcarchive
+        uses: actions/upload-artifact@v4
+        with:
+          name: BOOKeeper-${{ env.APP_VERSION }}.xcarchive
+          path: ios/build/BOOKeeper.xcarchive
+          retention-days: 14
+
+      - name: 📱 Upload unsigned ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: BOOKeeper-${{ env.APP_VERSION }}.ipa
+          path: BOOKeeper-${{ env.APP_VERSION }}.ipa
+          retention-days: 14
+
+      - name: 🚀 Upload IPA to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPO: ${{ github.repository }}
+          RELEASE_TAG: v${{ env.APP_VERSION }}
+          RELEASE_TITLE: BOOKeeper ${{ env.APP_VERSION }}
+          RELEASE_FILE: BOOKeeper-${{ env.APP_VERSION }}.ipa
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$RELEASE_REPO" \
+              --title "$RELEASE_TITLE" \
+              --notes "BOOKeeper ${APP_VERSION}" \
+              || gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" >/dev/null
+          fi
+
+          gh release upload "$RELEASE_TAG" "$RELEASE_FILE" \
+            --repo "$RELEASE_REPO" \
+            --clobber
+
+      - name: 🏗 Checkout release repo
+        uses: actions/checkout@v5
+        with:
+          path: BOOKeeper-updates
+
+      - name: 📝 Update latest build info
+        env:
+          RELEASE_VERSION: ${{ env.APP_VERSION }}
+          IOS_LINK: https://github.com/${{ github.repository }}/releases/download/v${{ env.APP_VERSION }}/BOOKeeper-${{ env.APP_VERSION }}.ipa
+        run: |
+          cd BOOKeeper-updates
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3; do
+            git pull --rebase origin main
+
+            ANDROID_LINK=""
+            if [ -f latest_build ] && [ "$(jq -r '.version // ""' latest_build)" = "$RELEASE_VERSION" ]; then
+              ANDROID_LINK=$(jq -r '.android_link // ""' latest_build)
+            fi
+
+            jq -n \
+              --arg version "$RELEASE_VERSION" \
+              --arg android_link "$ANDROID_LINK" \
+              --arg ios_link "$IOS_LINK" \
+              '{version: $version, android_link: $android_link, ios_link: $ios_link}' > latest_build
+
+            git add latest_build
+            if git diff --cached --quiet; then
+              echo "latest_build is already up to date."
+              exit 0
+            fi
+
+            git commit -m "Update latest build to $RELEASE_VERSION"
+            if git push origin main; then
+              exit 0
+            fi
+
+            git reset --soft HEAD~1
+            sleep 2
+          done
+
+          echo "Failed to push latest_build after retries."
+          exit 1
