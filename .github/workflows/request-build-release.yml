@@ -1,0 +1,57 @@
+name: Request BOOKeeper Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      code_ref:
+        description: Branch, tag, or commit SHA in yzu1103309/Bookshelf-App-React-Native
+        required: true
+        default: main
+      android:
+        description: Trigger Android APK build
+        type: boolean
+        required: true
+        default: true
+      ios:
+        description: Trigger iOS IPA build
+        type: boolean
+        required: true
+        default: true
+      android_profile:
+        description: Android EAS build profile
+        type: choice
+        required: true
+        default: production
+        options:
+          - production
+          - preview
+          - development
+
+jobs:
+  request-builds:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Android build
+        if: ${{ inputs.android }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_ACTION_TOKEN }}
+          CODE_REPO: yzu1103309/Bookshelf-App-React-Native
+          CODE_REF: ${{ inputs.code_ref }}
+          ANDROID_PROFILE: ${{ inputs.android_profile }}
+        run: |
+          gh workflow run main.yml \
+            --repo "$CODE_REPO" \
+            --ref "$CODE_REF" \
+            -f profile="$ANDROID_PROFILE"
+
+      - name: Trigger iOS build
+        if: ${{ inputs.ios }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_ACTION_TOKEN }}
+          CODE_REPO: yzu1103309/Bookshelf-App-React-Native
+          CODE_REF: ${{ inputs.code_ref }}
+        run: |
+          gh workflow run xcode.yml \
+            --repo "$CODE_REPO" \
+            --ref "$CODE_REF"
