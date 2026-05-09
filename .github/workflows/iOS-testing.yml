@@ -23,12 +23,24 @@ jobs:
             exit 1
           fi
 
-      - name: 🏗 Setup app repo
-        uses: actions/checkout@v5
-        with:
-          repository: yzu1103309/Bookshelf-App-React-Native
-          ref: ${{ inputs.code_ref }}
-          token: ${{ secrets.RELEASE_ACTION_TOKEN }}
+      - name: 🏗 Fetch app repo
+        env:
+          APP_REPO_TOKEN: ${{ secrets.RELEASE_ACTION_TOKEN }}
+          APP_REPO: yzu1103309/Bookshelf-App-React-Native
+          CODE_REF: ${{ inputs.code_ref }}
+        run: |
+          if [ -z "$APP_REPO_TOKEN" ]; then
+            echo "You must provide a RELEASE_ACTION_TOKEN secret with read access to $APP_REPO."
+            exit 1
+          fi
+
+          git init .
+          git remote add origin "https://x-access-token:${APP_REPO_TOKEN}@github.com/${APP_REPO}.git"
+          git fetch --depth=1 origin "$CODE_REF" \
+            || git fetch --depth=1 origin "refs/heads/$CODE_REF" \
+            || git fetch --depth=1 origin "refs/tags/$CODE_REF"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${APP_REPO}.git"
 
       - name: 🔖 Read app version
         run: echo "APP_VERSION=$(jq -r .expo.version app.json)" >> "$GITHUB_ENV"
